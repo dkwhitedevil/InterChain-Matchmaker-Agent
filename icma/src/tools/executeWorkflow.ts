@@ -1,83 +1,110 @@
 /**
  * src/tools/executeWorkflow.ts
  *
- * Execute each step in the workflow by calling the agent's /execute endpoint.
- * - Supports sequential execution (safe) and parallel option (faster)
- * - Validates outputs (expecting { status: "DONE", output: {...} })
- * - Collects logs, durations, errors
+ * Execute matched agents sequentially. The `matches` are an array of { step, agent } in desired order.
  *
- * Export: async function execute_workflow({ workflow, parallel = false, timeoutMs })
+ * Behavior:
+ *  - Calls each agent's /execute with current payload
+ *  - Validates that the agent returns { status: "DONE", output: ... }
+ *  - Pipes the `output` as next step's payload (or use mapping)
+ *  - Supports per-agent timeouts and retries
+ *  - Returns the final output and a step-by-step execution log
  */
 
-import axios from "axios";
 import type { AgentInfo } from "./discoverAgents";
+import type { MatchResult } from "./matchCapabilities";
 
-export type ExecuteInput = {
-  workflow: { stepId: number; role: string; agent: AgentInfo }[];
-  parallel?: boolean;
+export type ExecutionLogEntry = {
+  step: string;
+  agentId: string;
+  success: boolean;
+  statusCode?: number;
+  durationMs?: number;
+  error?: string;
+  output?: any;
+};
+
+export type ExecuteOptions = {
   timeoutMs?: number;
+  retryAttempts?: number;
 };
 
-export type ExecuteResult = {
-  status: "OK" | "FAILED" | "PARTIAL";
-  outputs: Array<{
-    agentId: string;
-    stepId: number;
-    status: string;
-    output?: any;
-    durationMs?: number;
-    error?: string;
-  }>;
+const DEFAULT_OPTS: Required<ExecuteOptions> = {
+  timeoutMs: 12000,
+  retryAttempts: 1,
 };
 
-const DEFAULT_TIMEOUT = 8000;
-
-async function callExecute(endpoint: string, body: any, timeoutMs: number) {
-  const start = Date.now();
-  const res = await axios.post(endpoint, body, { timeout: timeoutMs });
-  const duration = Date.now() - start;
-  return { data: res.data, durationMs: duration };
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...init, signal: controller.signal });
+    clearTimeout(id);
+    return res;
+  } catch (err) {
+    clearTimeout(id);
+    throw err;
+  }
 }
 
-export async function execute_workflow(input: ExecuteInput): Promise<ExecuteResult> {
-  const { workflow, parallel = false, timeoutMs = DEFAULT_TIMEOUT } = input;
-  const outputs: ExecuteResult["outputs"] = [];
+export async function executeWorkflow(matches: MatchResult[], initialPayload: any, opts?: ExecuteOptions) {
+  const options = { ...DEFAULT_OPTS, ...(opts || {}) };
+  const logs: ExecutionLogEntry[] = [];
+  let payload = initialPayload;
 
-  if (parallel) {
-    // execute all steps concurrently
-    await Promise.all(
-      workflow.map(async (step) => {
-        const url = `${step.agent.endpoint.replace(/\/$/, "")}/execute`;
-        try {
-          const { data, durationMs } = await callExecute(url, { task: step.role }, timeoutMs);
-          const status = data?.status || "UNKNOWN";
-          outputs.push({ agentId: step.agent.id, stepId: step.stepId, status, output: data?.output, durationMs });
-        } catch (err: any) {
-          outputs.push({ agentId: step.agent.id, stepId: step.stepId, status: "ERROR", error: String(err?.message || err) });
-        }
-      })
-    );
-  } else {
-    // execute sequentially (recommended for workflows with dependencies)
-    for (const step of workflow) {
-      const url = `${step.agent.endpoint.replace(/\/$/, "")}/execute`;
+  for (const m of matches) {
+    const execUrl = m.agent.url.replace(/\/+$/, "") + "/execute";
+    let success = false;
+    let lastError = "";
+    let out: any = undefined;
+    let statusCode: number | undefined = undefined;
+    const start = Date.now();
+
+    for (let attempt = 0; attempt <= options.retryAttempts; attempt++) {
       try {
-        const { data, durationMs } = await callExecute(url, { task: step.role }, timeoutMs);
-        const status = data?.status || "UNKNOWN";
-        outputs.push({ agentId: step.agent.id, stepId: step.stepId, status, output: data?.output, durationMs });
+        const res = await fetchWithTimeout(execUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        }, options.timeoutMs);
+
+        statusCode = res.status;
+        const jsonBody: any = await res.json().catch(() => null);
+
+        if (jsonBody && jsonBody.status === "DONE") {
+          success = true;
+          out = jsonBody.output ?? jsonBody;
+          break;
+        } else {
+          lastError = `unexpected-response`;
+          out = jsonBody;
+        }
       } catch (err: any) {
-        outputs.push({ agentId: step.agent.id, stepId: step.stepId, status: "ERROR", error: String(err?.message || err) });
-        // if a critical step fails, break early to avoid useless calls
-        // decide policy: here we break if step failed
-        break;
+        lastError = (err && err.message) || String(err);
+        // backoff between retries
+        if (attempt < options.retryAttempts) await new Promise(r => setTimeout(r, 200 + Math.random() * 300));
       }
     }
+
+    const durationMs = Date.now() - start;
+    logs.push({
+      step: m.step,
+      agentId: m.agent.id,
+      success,
+      statusCode,
+      durationMs,
+      error: success ? undefined : lastError,
+      output: out,
+    });
+
+    if (!success) {
+      // abort workflow if any step fails
+      return { success: false, error: `Agent ${m.agent.id} failed at step ${m.step}`, logs, lastOutput: out };
+    }
+
+    // next payload - default: put under 'walletData' or pass entire output
+    payload = out;
   }
 
-  const successCount = outputs.filter((o) => o.status && o.status.toUpperCase() === "DONE").length;
-  const failedCount = outputs.filter((o) => o.status && (o.status.toUpperCase() === "ERROR" || o.status.toUpperCase() === "FAILED")).length;
-
-  const overallStatus: ExecuteResult["status"] = successCount === outputs.length ? "OK" : successCount > 0 ? "PARTIAL" : "FAILED";
-
-  return { status: overallStatus, outputs };
+  return { success: true, finalOutput: payload, logs };
 }
