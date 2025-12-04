@@ -1,0 +1,58 @@
+[
+  {
+    "id": "wallet-agent",
+    "name": "WalletAnalysisAgent",
+    "version": "1.0.0",
+    "description": "Scans wallet addresses, extracts token balances, risk indicators, transaction summaries, and returns structured data.",
+    "endpoint": "http://localhost:9001",
+    "capabilities": [
+      "wallet_scan",
+      "balance_data",
+      "token_list",
+      "tx_history",
+      "address_metadata"
+    ],
+    "roles": ["data_extractor", "risk_analysis_source"],
+    "healthcheck": {
+      "path": "/capabilities",
+      "method": "GET"
+    },
+    "pricing": {
+      "unit": "task",
+      "estimate": "0.00005 ETH"
+    },
+    "meta": {
+      "provider": "local",
+      "latency": "5-10ms",
+      "preferredFor": "wallet_data"
+    }
+  },
+  {
+    "id": "report-agent",
+    "name": "ReportGeneratorAgent",
+    "version": "1.0.0",
+    "description": "Processes raw wallet data, analyzes risk, generates PDF/Markdown reports, and uploads final outputs to IPFS.",
+    "endpoint": "http://localhost:9002",
+    "capabilities": [
+      "process_data",
+      "generate_report",
+      "ipfs_upload",
+      "markdown_generation",
+      "risk_summary"
+    ],
+    "roles": ["report_generator", "uploader"],
+    "healthcheck": {
+      "path": "/capabilities",
+      "method": "GET"
+    },
+    "pricing": {
+      "unit": "task",
+      "estimate": "0.00008 ETH"
+    },
+    "meta": {
+      "provider": "local",
+      "latency": "10-20ms",
+      "preferredFor": "report_generation"
+    }
+  }
+]

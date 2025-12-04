@@ -1,0 +1,23 @@
+{
+	"name": "wallet-agent",
+	"version": "0.0.0",
+	"private": true,
+	"scripts": {
+		"deploy": "wrangler publish",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"test": "vitest",
+		"cf-typegen": "wrangler types"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-pool-workers": "^0.8.19",
+		"@cloudflare/workers-types": "^4.20251202.0",
+		"typescript": "^5.5.2",
+		"vitest": "~3.2.0",
+		"wrangler": "^4.52.1"
+	},
+	"dependencies": {
+		"axios": "^1.13.2",
+		"ethers": "^6.16.0"
+	}
+}

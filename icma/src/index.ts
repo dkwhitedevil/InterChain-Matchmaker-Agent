@@ -1,92 +1,20 @@
-import { Hono } from 'hono';
-import { cors } from 'hono/cors';
-import { ToolboxService } from '@nullshot/agent';
-import { stepCountIs, type LanguageModel, type Provider } from 'ai';
-import { createAnthropic } from '@ai-sdk/anthropic';
-import { AiSdkAgent, AIUISDKMessage } from '@nullshot/agent';
-import mcpConfig from '../mcp.json'
-
-// Instantiate application with Hono
-const app = new Hono<{ Bindings: Env }>();
-
-app.use(
-	'*',
-	cors({
-		origin: '*', // Allow any origin for development; restrict this in production
-		allowMethods: ['POST', 'GET', 'OPTIONS'],
-		allowHeaders: ['Content-Type'],
-		exposeHeaders: ['X-Session-Id'],
-		maxAge: 86400, // 24 hours
-	}),
-);
-
-// Route all requests to the durable object instance based on session
-app.all('/agent/chat/:sessionId?', async (c) => {
-	const { AGENT } = c.env;
-	var sessionIdStr = c.req.param('sessionId');
-
-	if (!sessionIdStr || sessionIdStr == '') {
-		sessionIdStr = crypto.randomUUID();
-	}
-
-	const id = AGENT.idFromName(sessionIdStr);
-
-	const forwardRequest = new Request('https://internal.com/agent/chat/' + sessionIdStr, {
-		method: c.req.method,
-		body: c.req.raw.body,
-	});
-
-	// Forward to Durable Object and get response
-	return await AGENT.get(id).fetch(forwardRequest);
-});
-
-//
-export class SimplePromptAgent extends AiSdkAgent<Env> {
-	constructor(state: DurableObjectState, env: Env) {
-		 // Use string model identifier - AI SDK v5 supports this directly
-		 let provider: Provider;
-		 let model: LanguageModel;
-		 switch (env.AI_PROVIDER) {
-		   case "anthropic":
-			 provider = createAnthropic({
-			   apiKey: env.AI_PROVIDER_API_KEY,
-			 });
-	 
-			 // Get the actual model object
-			 model = provider.languageModel(env.MODEL_ID);
-			 break;
-		   default:
-			 // This should never happen due to validation above, but TypeScript requires this
-			 throw new Error(`Unsupported AI provider: ${env.AI_PROVIDER}`);
-		 }
-	 
-		 super(state, env, model, [new ToolboxService(env, mcpConfig)]);
-	  }
-
-	async processMessage(sessionId: string, messages: AIUISDKMessage): Promise<Response> {
-		// Use the protected streamTextWithMessages method - model is handled automatically by the agent
-		const result = await this.streamTextWithMessages(
-			sessionId,
-			messages.messages,
-			{
-			  system:
-				"You are a conversational expert, enjoying deep, intellectual conversations.",
-			  maxSteps: 10,
-			  stopWhen: stepCountIs(10),
-			  // Enable MCP tools from imported mcp.json
-			  experimental_toolCallStreaming: true,
-			  onError: (error: unknown) => {
-				console.error("Error processing message", error);
-			  },
-			},
-		  );
-	  
-		  return result.toTextStreamResponse();
-	}
-}
+import { discover_agents } from "./tools/discoverAgents";
+import { match_agents } from "./tools/matchAgents";
+import { negotiate_terms } from "./tools/negotiate";
+import { execute_workflow } from "./tools/executeWorkflow";
 
 export default {
-	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-		return app.fetch(request, env, ctx);
-	},
+  async onMessage(input: string) {
+    console.log("USER INPUT:", input);
+    const agents = await discover_agents({ probeEndpoints: true, timeoutMs: 3000, edenlayerUrl: process.env.EDENLAYER_URL });
+    const plan = await match_agents({ goal: input, agents });
+    const negotiation = await negotiate_terms({ workflow: plan.workflow, proposalTemplate: { price: "0.00001 ETH" } });
+    const executeRes = await execute_workflow({ workflow: plan.workflow, parallel: false });
+    return {
+      message: "ICMA finished",
+      plan,
+      negotiation,
+      executeRes
+    };
+  }
 };

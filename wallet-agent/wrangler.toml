@@ -1,0 +1,6 @@
+name = "wallet-agent"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+[vars]
+# You may put public variables here (not secrets)
