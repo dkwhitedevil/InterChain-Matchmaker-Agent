@@ -1,0 +1,42 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "icma",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-01",
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "SimplePromptAgent"
+      ]
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "AGENT",
+        "class_name": "SimplePromptAgent"
+      }
+    ]
+  },
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "AI_PROVIDER": "anthropic",
+    "MODEL_ID": "claude-sonnet-4-20250514"
+  },
+  "services": [
+    {
+      "binding": "MCP_SERVICE",
+      "service": "mcp"
+    }
+  ],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
