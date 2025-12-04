@@ -1,0 +1,8 @@
+name = "report-agent-worker"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = [
+  "streams_enable_constructors",
+  "formdata_parser_supports_files",
+  "fetch_upload_streaming"
+]
