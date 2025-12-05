@@ -49,6 +49,14 @@ export async function negotiateAgents(agents: AgentInfo[], opts?: NegotiateOptio
   const out: NegotiateResult[] = [];
 
   for (const agent of agents) {
+    if (agent.endpoint.includes("raw.githubusercontent.com")) {
+    out.push({
+      agentId: agent.id,
+      accepted: true,
+      responseBody: { note: "Skipping negotiation for capability-file endpoint" }
+    });
+    continue;
+  }
     const negotiateUrl = agent.endpoint.replace(/\/+$/, "") + "/negotiate";
     let accepted = false;
     let lastError: string | undefined;

@@ -1,35 +1,25 @@
 /**
  * src/tools/discoverAgents.ts
  *
- * Worker-safe agent discovery & probing utility.
- *
- * Exports:
- *   - types: AgentInfo, DiscoverOptions
- *   - function discoverAgents(opts?: DiscoverOptions): Promise<AgentInfo[]>
- *
- * Notes:
- * - Uses fetch() only (Cloudflare Worker compatible).
- * - Can load a registry via registryUrl (recommended: same origin /agents.json).
- * - Probes /capabilities endpoints with concurrency control and timeouts.
+ * FINAL FIXED VERSION — NO PROXY, NO WORKER→WORKER FETCH
+ * Loads agent definitions from /assets/agents.json
+ * Each agent's endpoint should already be a GitHub RAW capability URL.
  */
-
-// PROXY to bypass Cloudflare Worker→Worker fetch restrictions
-const PROXY = "https://api.allorigins.win/raw?url=";
 
 export type AgentInfo = {
   id: string;
   name?: string;
-  endpoint: string;              // <--- FIX: standard name
+  endpoint: string;              // direct JSON capability URL
   capabilities: string[];
   meta?: Record<string, any>;
 };
 
 export type DiscoverOptions = {
-  registryUrl?: string; // ex: "https://example.workers.dev/agents.json" or "/agents.json"
-  probeEndpoints?: boolean; // default true
-  timeoutMs?: number; // per-request timeout
-  probeConcurrency?: number; // default 4
-  retryAttempts?: number; // probe retry attempts
+  registryUrl?: string;          // ex: "/assets/agents.json"
+  probeEndpoints?: boolean;
+  timeoutMs?: number;
+  probeConcurrency?: number;
+  retryAttempts?: number;
 };
 
 const DEFAULT_OPTS: Required<DiscoverOptions> = {
@@ -40,40 +30,46 @@ const DEFAULT_OPTS: Required<DiscoverOptions> = {
   retryAttempts: 1,
 };
 
-/* Helper: fetch with timeout */
-async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit | undefined, timeoutMs: number) {
+/* ----------------------------------------
+   fetch with timeout
+----------------------------------------- */
+async function fetchWithTimeout(input: RequestInfo, init: RequestInit | undefined, timeoutMs: number) {
   const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeoutMs);
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
     const res = await fetch(input, { ...(init || {}), signal: controller.signal });
-    clearTimeout(id);
+    clearTimeout(t);
     return res;
   } catch (err) {
-    clearTimeout(id);
+    clearTimeout(t);
     throw err;
   }
 }
 
-/* Load registry JSON from a URL. Returns null on failure */
+/* ----------------------------------------
+   Load agents.json from registry
+----------------------------------------- */
 async function loadRegistry(registryUrl: string, timeoutMs: number): Promise<any[] | null> {
   try {
     const res = await fetchWithTimeout(registryUrl, { method: "GET" }, timeoutMs);
     if (!res.ok) return null;
     const data = await res.json();
-    if (!Array.isArray(data)) return null;
-    return data;
+    return Array.isArray(data) ? data : null;
   } catch {
     return null;
   }
 }
 
-/* Probe /capabilities for a single agent with retries */
-async function probeCapabilities(urlBase: string, timeoutMs: number, retries: number): Promise<any | null> {
-  const url = urlBase.replace(/\/+$/, "") + "/capabilities";
+/* ----------------------------------------
+   Probe a single endpoint for capabilities
+----------------------------------------- */
+async function probeCapabilities(endpoint: string, timeoutMs: number, retries: number): Promise<any | null> {
   let attempt = 0;
+
   while (attempt <= retries) {
     try {
-      const res = await fetchWithTimeout(url, { method: "GET" }, timeoutMs);
+      const res = await fetchWithTimeout(endpoint, { method: "GET" }, timeoutMs);
       if (!res.ok) {
         attempt++;
         continue;
@@ -82,111 +78,110 @@ async function probeCapabilities(urlBase: string, timeoutMs: number, retries: nu
       return data;
     } catch {
       attempt++;
-      // small jitter before next attempt
-      if (attempt <= retries) await new Promise((r) => setTimeout(r, 100 + Math.random() * 200));
+
+      if (attempt <= retries) {
+        await new Promise((r) => setTimeout(r, 120 + Math.random() * 200));
+      }
     }
   }
+
   return null;
 }
 
-/* concurrency-limited map */
+/* ----------------------------------------
+   Concurrency-limited mapper
+----------------------------------------- */
 async function pMap<T, R>(
   items: T[],
   concurrency: number,
   mapper: (item: T, index: number) => Promise<R>
 ): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let currentIndex = 0;
+  
+  const out: R[] = new Array(items.length);
+  let current = 0;
 
   async function worker() {
     while (true) {
-      const index = currentIndex++;
-      if (index >= items.length) break;
+      const i = current++;
+      if (i >= items.length) break;
 
-      try {
-        results[index] = await mapper(items[index], index);
-      } catch (err) {
-        throw err; // fail fast
-      }
+      out[i] = await mapper(items[i], i);
     }
   }
 
-  // Create N workers
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () =>
-    worker()
-  );
-
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
   await Promise.all(workers);
-  return results;
+
+  return out;
 }
 
-/**
- * Public: discoverAgents
- */
+/* ----------------------------------------
+   PUBLIC: discoverAgents
+----------------------------------------- */
 export async function discoverAgents(opts?: DiscoverOptions): Promise<AgentInfo[]> {
   const options = { ...DEFAULT_OPTS, ...(opts || {}) };
 
-  // 1) load registry
-  let registryArr = await loadRegistry(options.registryUrl, options.timeoutMs).catch(() => null);
+  // Load agents.json
+  let registry = await loadRegistry(options.registryUrl, options.timeoutMs);
+  if (!registry) registry = [];
 
-  // if fetch fails or not returned, fallback to empty array
-  if (!registryArr) registryArr = [];
-
-  // normalize: ensure each entry has id & url
-  const normalized = registryArr
-    .filter((a) => a && (a.id || a.name) && (a.url || a.endpoint))
+  // Normalize agents.json entries
+  const normalized: AgentInfo[] = registry
+    .filter(a => a && a.id && (a.url || a.endpoint))
     .map((a: any) => ({
-      id: String(a.id || a.name),
-      name: a.name || a.id || undefined,
-      endpoint: PROXY + encodeURIComponent(String(a.endpoint || a.url)),
-      capabilities: Array.isArray(a.capabilities) ? a.capabilities.slice() : [],
-      meta: a.meta || {},
+      id: String(a.id),
+      name: a.name || a.id,
+      endpoint: String(a.endpoint || a.url).trim(),  // <-- DIRECT URL, NO PROXY
+      capabilities: Array.isArray(a.capabilities) ? [...a.capabilities] : [],
+      meta: a.meta || {}
     }));
 
-  // if registry empty -> fallback to embedded defaults (keeps offline dev possible)
-  const fallbackDefaults: AgentInfo[] = normalized.length === 0 ? [
-    {
-      id: "wallet-agent",
-      name: "WalletAnalysisAgent",
-      endpoint: "https://wallet-agent.icma.workers.dev",
-      capabilities: [],
-    },
-    {
-      id: "report-agent",
-      name: "ReportGenerationAgent",
-      endpoint: "https://report-agent-worker.icma.workers.dev",
-      capabilities: [],
-    },
-  ] : normalized;
+  // If empty → fallback (only for local dev)
+  const fallback: AgentInfo[] = normalized.length === 0
+    ? [
+        {
+          id: "wallet-agent",
+          name: "WalletAnalysisAgent",
+          endpoint:
+            "https://raw.githubusercontent.com/dkwhitedevil/InterChain-Matchmaker-Agent/main/public/wallet-cap.json",
+          capabilities: []
+        },
+        {
+          id: "report-agent",
+          name: "ReportGenerationAgent",
+          endpoint:
+            "https://raw.githubusercontent.com/dkwhitedevil/InterChain-Matchmaker-Agent/main/public/report-cap.json",
+          capabilities: []
+        }
+      ]
+    : normalized;
 
-  if (!options.probeEndpoints) return fallbackDefaults;
+  if (!options.probeEndpoints) return fallback;
 
-  // 2) probe endpoints in parallel with concurrency limit
-  const probedResults = await pMap(
-    fallbackDefaults,
+  // Probe capability URLs with concurrency
+  const probed = await pMap(
+    fallback,
     options.probeConcurrency,
     async (agent) => {
-      try {
-        const data = await probeCapabilities(agent.endpoint, options.timeoutMs, options.retryAttempts);
-        if (data && Array.isArray(data.capabilities)) {
-          return {
-            id: agent.id,
-            name: data.name || agent.name,
-            endpoint: agent.endpoint,
-            capabilities: data.capabilities,
-            meta: { ...agent.meta, ...(data.meta || {}) },
-          } as AgentInfo;
-        }
-      } catch {
-        // ignore
+      const data = await probeCapabilities(agent.endpoint, options.timeoutMs, options.retryAttempts);
+
+      if (data && Array.isArray(data.capabilities)) {
+        return {
+          id: agent.id,
+          name: data.name || agent.name,
+          endpoint: agent.endpoint,
+          capabilities: data.capabilities,
+          meta: { ...agent.meta, ...(data.meta || {}) }
+        } as AgentInfo;
       }
-      // if probe failed, return original info
-      return agent;
+
+      return agent; // fallback
     }
   );
 
-  // dedupe by id (keep latest)
-  const mapById = new Map<string, AgentInfo>();
-  for (const a of probedResults) mapById.set(a.id, a);
-  return Array.from(mapById.values());
+  // Deduplicate by id
+  const map = new Map<string, AgentInfo>();
+  for (const a of probed) map.set(a.id, a);
+
+  return [...map.values()];
 }

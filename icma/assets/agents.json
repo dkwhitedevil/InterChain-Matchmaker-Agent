@@ -2,23 +2,15 @@
   {
     "id": "wallet-agent",
     "name": "WalletAnalysisAgent",
-    "description": "Analyzes an Ethereum wallet by fetching balance, transaction history, and computing a risk score.",
-    "url": "https://wallet-agent.icma.workers.dev",
-    "capabilities": [
-      "wallet_scan",
-      "balance_data",
-      "tx_history",
-      "risk_score"
-    ]
+    "description": "Capability file for wallet agent.",
+    "endpoint": "https://raw.githubusercontent.com/dkwhitedevil/InterChain-Matchmaker-Agent/main/public/wallet-cap.json",
+    "capabilities": []
   },
   {
     "id": "report-agent",
     "name": "ReportGenerationAgent",
-    "description": "Generates Markdown reports based on wallet analytics and uploads them to IPFS via Pinata.",
-    "url": "https://report-agent-worker.icma.workers.dev",
-    "capabilities": [
-      "generate_report",
-      "ipfs_upload"
-    ]
+    "description": "Capability file for report agent.",
+    "endpoint": "https://raw.githubusercontent.com/dkwhitedevil/InterChain-Matchmaker-Agent/main/public/report-cap.json",
+    "capabilities": []
   }
 ]

@@ -2,12 +2,9 @@ name = "icma-orchestrator"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
-tsconfig = "tsconfig.json"
-
-# Enables Node APIs inside Cloudflare Workers
 compatibility_flags = ["nodejs_compat"]
 
-workers_dev = true
-
-[site]
-bucket = "./assets"
+# This serves agents.json from /assets
+[assets]
+directory = "./assets"
+binding = "ASSETS"
