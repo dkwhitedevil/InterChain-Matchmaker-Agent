@@ -13,10 +13,13 @@
  * - Probes /capabilities endpoints with concurrency control and timeouts.
  */
 
+// PROXY to bypass Cloudflare Worker→Worker fetch restrictions
+const PROXY = "https://api.allorigins.win/raw?url=";
+
 export type AgentInfo = {
   id: string;
   name?: string;
-  url: string; // base url of agent
+  endpoint: string;              // <--- FIX: standard name
   capabilities: string[];
   meta?: Record<string, any>;
 };
@@ -135,7 +138,7 @@ export async function discoverAgents(opts?: DiscoverOptions): Promise<AgentInfo[
     .map((a: any) => ({
       id: String(a.id || a.name),
       name: a.name || a.id || undefined,
-      url: String(a.url || a.endpoint),
+      endpoint: PROXY + encodeURIComponent(String(a.endpoint || a.url)),
       capabilities: Array.isArray(a.capabilities) ? a.capabilities.slice() : [],
       meta: a.meta || {},
     }));
@@ -145,13 +148,13 @@ export async function discoverAgents(opts?: DiscoverOptions): Promise<AgentInfo[
     {
       id: "wallet-agent",
       name: "WalletAnalysisAgent",
-      url: "https://wallet-agent.icma.workers.dev",
+      endpoint: "https://wallet-agent.icma.workers.dev",
       capabilities: [],
     },
     {
       id: "report-agent",
       name: "ReportGenerationAgent",
-      url: "https://report-agent-worker.icma.workers.dev",
+      endpoint: "https://report-agent-worker.icma.workers.dev",
       capabilities: [],
     },
   ] : normalized;
@@ -164,12 +167,12 @@ export async function discoverAgents(opts?: DiscoverOptions): Promise<AgentInfo[
     options.probeConcurrency,
     async (agent) => {
       try {
-        const data = await probeCapabilities(agent.url, options.timeoutMs, options.retryAttempts);
+        const data = await probeCapabilities(agent.endpoint, options.timeoutMs, options.retryAttempts);
         if (data && Array.isArray(data.capabilities)) {
           return {
             id: agent.id,
             name: data.name || agent.name,
-            url: agent.url,
+            endpoint: agent.endpoint,
             capabilities: data.capabilities,
             meta: { ...agent.meta, ...(data.meta || {}) },
           } as AgentInfo;

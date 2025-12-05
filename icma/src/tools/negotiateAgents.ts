@@ -49,7 +49,7 @@ export async function negotiateAgents(agents: AgentInfo[], opts?: NegotiateOptio
   const out: NegotiateResult[] = [];
 
   for (const agent of agents) {
-    const negotiateUrl = agent.url.replace(/\/+$/, "") + "/negotiate";
+    const negotiateUrl = agent.endpoint.replace(/\/+$/, "") + "/negotiate";
     let accepted = false;
     let lastError: string | undefined;
     let respBody: any = undefined;

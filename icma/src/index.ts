@@ -1,148 +1,207 @@
 /**
- * src/orchestrator.ts
- *
- * ICMA Orchestrator Cloudflare Worker
+ * ICMA Orchestrator Cloudflare Worker (MODULE WORKER VERSION)
  *
  * Exposes:
  *  - GET  /capabilities
- *  - POST /negotiate     (accept simple proposals)
- *  - POST /execute       (main entry: { address: "0x..." })
- *
- * Behavior:
- *  - Loads agents.json from the same origin (assets/agents.json) by default
- *  - Discovers and probes agents
- *  - Matches capabilities for workflow: wallet_scan -> generate_report
- *  - Negotiates with matched agents
- *  - Executes workflow sequentially, returns final result & execution log
+ *  - GET  /test-wallet
+ *  - GET  /test-report
+ *  - POST /negotiate
+ *  - POST /execute
  */
 
-import { discoverAgents, AgentInfo } from "./tools/discoverAgents";
+import { discoverAgents } from "./tools/discoverAgents";
 import { matchCapabilities, MatchResult } from "./tools/matchCapabilities";
 import { negotiateAgents } from "./tools/negotiateAgents";
 import { executeWorkflow } from "./tools/executeWorkflow";
 
-export interface Env {
-  // Optional: add keys if orchestrator needs to call protected agents
-  // EXAMPLE_API_KEY?: string;
-}
+// PROXY to bypass Cloudflare Worker→Worker fetch restrictions
+const PROXY = "https://api.allorigins.win/raw?url=";
+const WALLET_AGENT = PROXY + encodeURIComponent("https://wallet-agent.icma.workers.dev");
+const REPORT_AGENT = PROXY + encodeURIComponent("https://report-agent-worker.icma.workers.dev");
 
-function json(data: any, status = 200) {
+export interface Env {}
+
+function json(data: any, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json" }
   });
 }
 
-function error(message: string, code = 400) {
+function error(message: string, code = 400): Response {
   return json({ status: "ERROR", message }, code);
 }
 
-/* Minimal address validator (ETH hex) */
-function isProbablyEthAddress(v: any): boolean {
-  return typeof v === "string" && /^0x[0-9a-fA-F]{40}$/.test(v);
+/** Minimal Ethereum address validator */
+function isEthAddress(str: string): boolean {
+  return typeof str === "string" && /^0x[a-fA-F0-9]{40}$/.test(str);
 }
 
-/* Workflow steps for ICMA */
+/** Our workflow steps */
 const WORKFLOW_STEPS = ["wallet_scan", "generate_report"];
 
+/* -------------------------
+   MODULE WORKER ENTRYPOINT
+   ------------------------- */
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    const path = url.pathname;
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return handleFetch(request, env);
+  }
+};
 
-    if (path === "/capabilities" && request.method === "GET") {
-      return json({
-        id: "icma-orchestrator",
-        name: "ICMA Orchestrator",
-        capabilities: ["orchestrate_workflow", "discover_agents"],
-      });
-    }
+/* -------------------------
+   MAIN REQUEST HANDLER
+   ------------------------- */
+async function handleFetch(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const path = url.pathname;
 
-    if (path === "/negotiate" && request.method === "POST") {
-      // minimal negotiation acceptance
-      return json({ status: "ACCEPT", message: "ICMA orchestrator accepts proposals." });
-    }
+  /* ---------- CAPABILITIES ---------- */
+  if (path === "/capabilities") {
+    return json({
+      id: "icma-orchestrator",
+      name: "ICMA Orchestrator",
+      capabilities: ["orchestrate_workflow", "discover_agents"]
+    });
+  }
 
-    if (path === "/execute" && request.method === "POST") {
-      // parse body
-      let body: any;
-      try {
-        body = await request.json();
-      } catch {
-        return error("Invalid JSON body", 400);
-      }
-
-      const address = body?.address || body?.wallet;
-      if (!address || !isProbablyEthAddress(address)) {
-        return error("Missing or invalid Ethereum address (address or wallet)", 400);
-      }
-
-      // 1) Discover agents (try loading assets/agents.json on same origin)
-      const registryUrl = new URL("/agents.json", url.origin).toString();
-      const agents = await discoverAgents({
-        registryUrl,
-        probeEndpoints: true,
-        timeoutMs: 3000,
-        probeConcurrency: 4,
-        retryAttempts: 1,
+  /* ---------- TEST WALLET AGENT ---------- */
+  if (path === "/test-wallet") {
+    try {
+      const res = await fetch(`${WALLET_AGENT}/capabilities`, {
+        method: "GET",
       });
 
-      // 2) Match capabilities
-      const matches = matchCapabilities(agents, WORKFLOW_STEPS);
+      const text = await res.text();
+      return new Response(text, { status: res.status });
+    } catch (e: any) {
+      return new Response(`ERROR: ${e.message}`, { status: 500 });
+    }
+  }
 
-      // detect missing steps
-      const missing = WORKFLOW_STEPS.filter(step => !matches.some(m => m.step === step));
-      if (missing.length > 0) {
-        return error(`Missing agents for steps: ${missing.join(", ")}`, 500);
-      }
+  /* ---------- TEST REPORT AGENT ---------- */
+  if (path === "/test-report") {
+    try {
+      const res = await fetch(`${REPORT_AGENT}/capabilities`, {
+        method: "GET",
+      });
 
-      // 3) Negotiate with selected agents
-      const negotiateResults = await negotiateAgents(matches.map(m => m.agent), { timeoutMs: 4000, retryAttempts: 1 });
-      const refused = negotiateResults.filter(r => !r.accepted);
-      if (refused.length > 0) {
-        return error(`Negotiation failed for agents: ${refused.map(r => r.agentId).join(", ")}`, 502);
-      }
+      const text = await res.text();
+      return new Response(text, { status: res.status });
+    } catch (e: any) {
+      return new Response(`ERROR: ${e.message}`, { status: 500 });
+    }
+  }
 
-      // 4) Execute workflow
-      // initial payload: pass address under { address } (agents expect either address or wallet)
-      const initialPayload = { address };
-      const execResult = await executeWorkflow(matches as MatchResult[], initialPayload, { timeoutMs: 12000, retryAttempts: 1 });
+  /* ---------- NEGOTIATE ---------- */
+  if (path === "/negotiate") {
+    return json({
+      status: "ACCEPT",
+      message: "ICMA orchestrator accepts proposals."
+    });
+  }
 
-      if (!execResult.success) {
-        return json({
-          status: "ERROR",
-          message: execResult.error || "Execution failed",
-          logs: execResult.logs || [],
-        }, 502);
-      }
-
-      // 5) Final response
-      return json({
-        status: "DONE",
-        wallet: execResult.finalOutput, // walletOutput from wallet-agent (or final agent's output if pipeline changes)
-        report: execResult.finalOutput, // Note: ReportAgent output will be in finalOutput if pipeline uses that mapping; to be explicit, one can examine logs
-        logs: execResult.logs,
-        agents: matches.map(m => ({ step: m.step, id: m.agent.id, url: m.agent.url })),
-        timestamp: Date.now(),
-      }, 200);
+  /* ---------- EXECUTE WORKFLOW ---------- */
+  if (path === "/execute" && request.method === "POST") {
+    // Parse body
+    let body: any;
+    try {
+      body = await request.json();
+    } catch {
+      return error("Invalid JSON body");
     }
 
-    // Health / simple help
-    if (path === "/" && request.method === "GET") {
-      return new Response(
-        [
-          "ICMA Orchestrator Worker",
-          "",
-          "GET  /capabilities",
-          "POST /negotiate",
-          "POST /execute   { \"address\": \"0x...\" }",
-          "",
-          "This worker orchestrates wallet_scan -> generate_report using discovered agents.",
-        ].join("\n"),
-        { status: 200, headers: { "content-type": "text/plain" } }
+    const address = body?.address || body?.wallet;
+    if (!address || !isEthAddress(address)) {
+      return error("Missing or invalid Ethereum address");
+    }
+
+    // 1. Discover agents
+    const registryUrl = new URL("/agents.json", url.origin).toString();
+
+    const agents = await discoverAgents({
+      registryUrl,
+      probeEndpoints: true,
+      timeoutMs: 4000
+    });
+
+    if (!agents.length) return error("No agents discovered", 500);
+
+    // 2. Match capabilities
+    const matches = matchCapabilities(agents, WORKFLOW_STEPS);
+
+    const missing = WORKFLOW_STEPS.filter(step => !matches.some(m => m.step === step));
+    if (missing.length > 0) {
+      return error(`Missing agents for steps: ${missing.join(", ")}`, 500);
+    }
+
+    // 3. Negotiate
+    const negotiations = await negotiateAgents(
+      matches.map(m => m.agent),
+      { timeoutMs: 4000 }
+    );
+
+    const refused = negotiations.filter(n => !n.accepted);
+    if (refused.length > 0) {
+      return error(
+        `Negotiation failed for agents: ${refused.map(r => r.agentId).join(", ")}`,
+        502
       );
     }
 
-    return error("Route not found", 404);
-  },
-};
+    // 4. Execute workflow
+    const exec = await executeWorkflow(
+      matches as MatchResult[],
+      { address },
+      { timeoutMs: 15000, retryAttempts: 1 }
+    );
+
+    if (!exec.success) {
+      return json(
+        {
+          status: "ERROR",
+          message: exec.error || "Workflow execution failed",
+          logs: exec.logs
+        },
+        502
+      );
+    }
+
+    // Extract outputs
+    const walletOutput = exec.logs.find(l => l.step === "wallet_scan")?.output || null;
+    const reportOutput = exec.logs.find(l => l.step === "generate_report")?.output || null;
+
+    return json({
+      status: "DONE",
+      wallet: walletOutput,
+      report: reportOutput,
+      logs: exec.logs,
+      agents: matches.map(m => ({
+        step: m.step,
+        id: m.agent.id,
+        endpoint: m.agent.endpoint
+      })),
+      timestamp: Date.now()
+    });
+  }
+
+  /* ---------- ROOT ---------- */
+  if (path === "/") {
+    return new Response(
+      [
+        "ICMA Orchestrator Worker",
+        "",
+        "GET  /capabilities",
+        "GET  /test-wallet",
+        "GET  /test-report",
+        "POST /negotiate",
+        "POST /execute  { address: \"0x...\" }",
+        "",
+        "Workflow: wallet_scan → generate_report"
+      ].join("\n"),
+      { headers: { "content-type": "text/plain" } }
+    );
+  }
+
+  return error("Route not found", 404);
+}

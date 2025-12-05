@@ -1,0 +1,5 @@
+{
+  "id": "wallet-agent",
+  "name": "WalletAnalysisAgent",
+  "capabilities": ["wallet_scan", "balance_data", "tx_history", "risk_score"]
+}

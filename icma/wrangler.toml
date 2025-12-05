@@ -1,14 +1,13 @@
 name = "icma-orchestrator"
-main = "src/orchestrator.ts"
+main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
-compatibility_flags = [
-  "streams_enable_constructors",
-  "formdata_parser_supports_files",
-  "fetch_upload_streaming"
-]
+tsconfig = "tsconfig.json"
 
-# Optional: routes or account/zone config can go here
-# account_id = "..."
-# workers_dev = true
-# route = "report-agent-worker.icma.workers.dev"
+# Enables Node APIs inside Cloudflare Workers
+compatibility_flags = ["nodejs_compat"]
+
+workers_dev = true
+
+[site]
+bucket = "./assets"

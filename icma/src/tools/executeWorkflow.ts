@@ -53,7 +53,7 @@ export async function executeWorkflow(matches: MatchResult[], initialPayload: an
   let payload = initialPayload;
 
   for (const m of matches) {
-    const execUrl = m.agent.url.replace(/\/+$/, "") + "/execute";
+    const execUrl = m.agent.endpoint.replace(/\/+$/, "") + "/execute";
     let success = false;
     let lastError = "";
     let out: any = undefined;
