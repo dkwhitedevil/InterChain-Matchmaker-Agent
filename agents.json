@@ -1,0 +1,16 @@
+[
+  {
+    "id": "wallet-agent",
+    "name": "WalletAnalysisAgent",
+    "description": "Analyzes Ethereum wallet balances, transactions, activity summaries, and computes risk score.",
+    "endpoint": "https://wallet-agent.icma.workers.dev",
+    "capabilities": ["wallet_scan"]
+  },
+  {
+    "id": "report-agent",
+    "name": "ReportGenerationAgent",
+    "description": "Generates Markdown reports from wallet analytics and uploads them to IPFS (Pinata).",
+    "endpoint": "https://report-agent-worker.icma.workers.dev",
+    "capabilities": ["generate_report"]
+  }
+]
