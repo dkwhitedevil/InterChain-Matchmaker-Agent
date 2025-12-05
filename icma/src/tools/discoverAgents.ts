@@ -61,15 +61,48 @@ async function loadRegistry(registryUrl: string, timeoutMs: number): Promise<any
   }
 }
 
-/* ----------------------------------------
-   Probe a single endpoint for capabilities
------------------------------------------ */
-async function probeCapabilities(endpoint: string, timeoutMs: number, retries: number): Promise<any | null> {
-  let attempt = 0;
 
+/* ----------------------------------------
+   Helper: build a fetchable URL. If the target is a workers.dev host,
+   route via the public proxy. If the endpoint points directly to a .json
+   capability file, fetch it as-is.
+----------------------------------------- */
+const PROXY = "https://api.allorigins.win/raw?url=";
+
+function buildFetchUrl(base: string, appendPath?: string) {
+  const trimmed = String(base).trim();
+
+  // If base already looks like a JSON capability file, fetch it directly
+  try {
+    const decoded = decodeURIComponent(trimmed);
+    if (/\.json(\?|$)/i.test(decoded) || /raw\.githubusercontent\.com/i.test(decoded)) {
+      return trimmed;
+    }
+  } catch (e) {
+    // ignore decode errors and fallback
+  }
+
+  const target = (trimmed.replace(/\/+$/, "") + (appendPath || "")).replace(/\s+/g, "");
+  try {
+    const u = new URL(target);
+    if (u.hostname.endsWith("workers.dev")) {
+      return PROXY + encodeURIComponent(target);
+    }
+  } catch (e) {
+    // if URL constructor fails, fall back to target
+  }
+  return target;
+}
+
+/* ----------------------------------------
+   Probe /capabilities for a single agent with retries
+----------------------------------------- */
+async function probeCapabilities(urlBase: string, timeoutMs: number, retries: number): Promise<any | null> {
+  const urlToFetch = buildFetchUrl(urlBase, "/capabilities");
+  let attempt = 0;
   while (attempt <= retries) {
     try {
-      const res = await fetchWithTimeout(endpoint, { method: "GET" }, timeoutMs);
+      const res = await fetchWithTimeout(urlToFetch, { method: "GET" }, timeoutMs);
       if (!res.ok) {
         attempt++;
         continue;
@@ -78,13 +111,10 @@ async function probeCapabilities(endpoint: string, timeoutMs: number, retries: n
       return data;
     } catch {
       attempt++;
-
-      if (attempt <= retries) {
-        await new Promise((r) => setTimeout(r, 120 + Math.random() * 200));
-      }
+      // small jitter before next attempt
+      if (attempt <= retries) await new Promise((r) => setTimeout(r, 100 + Math.random() * 200));
     }
   }
-
   return null;
 }
 

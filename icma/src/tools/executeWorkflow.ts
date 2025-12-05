@@ -47,13 +47,25 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }
 }
 
+// Proxy helper: route workers.dev requests via public proxy
+const PROXY = "https://api.allorigins.win/raw?url=";
+function buildFetchUrl(base: string, appendPath?: string) {
+  const trimmed = String(base).trim();
+  const target = trimmed.replace(/\/+$/, "") + (appendPath || "");
+  try {
+    const u = new URL(target);
+    if (u.hostname.endsWith("workers.dev")) return PROXY + encodeURIComponent(target);
+  } catch {}
+  return target;
+}
+
 export async function executeWorkflow(matches: MatchResult[], initialPayload: any, opts?: ExecuteOptions) {
   const options = { ...DEFAULT_OPTS, ...(opts || {}) };
   const logs: ExecutionLogEntry[] = [];
   let payload = initialPayload;
 
   for (const m of matches) {
-    const execUrl = m.agent.endpoint.replace(/\/+$/, "") + "/execute";
+    const execUrl = buildFetchUrl(m.agent.endpoint, "/execute");
     let success = false;
     let lastError = "";
     let out: any = undefined;

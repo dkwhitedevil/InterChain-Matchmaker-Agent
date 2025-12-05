@@ -3,14 +3,14 @@
     "id": "wallet-agent",
     "name": "WalletAnalysisAgent",
     "description": "Capability file for wallet agent.",
-    "endpoint": "https://raw.githubusercontent.com/dkwhitedevil/InterChain-Matchmaker-Agent/main/public/wallet-cap.json",
+    "endpoint": "https://wallet-agent.icma.workers.dev",
     "capabilities": []
   },
   {
     "id": "report-agent",
     "name": "ReportGenerationAgent",
     "description": "Capability file for report agent.",
-    "endpoint": "https://raw.githubusercontent.com/dkwhitedevil/InterChain-Matchmaker-Agent/main/public/report-cap.json",
+    "endpoint": "https://report-agent-worker.icma.workers.dev",
     "capabilities": []
   }
 ]
