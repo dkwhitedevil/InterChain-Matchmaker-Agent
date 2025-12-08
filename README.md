@@ -49,37 +49,37 @@ A distributed, multi-agent orchestration system built on Cloudflare Workers for 
 │  (icma-orchestrator.icma.workers.dev)               │
 ├─────────────────────────────────────────────────────┤
 │                                                     │
-│  ┌─────────────────────────────────────────────┐  │
-│  │ 1. Discover Agents                          │  │
-│  │    - Load agents.json                       │  │
-│  │    - Normalize endpoints                    │  │
-│  └─────────────────────────────────────────────┘  │
+│  ┌─────────────────────────────────────────────┐    │
+│  │ 1. Discover Agents                          │    │
+│  │    - Load agents.json                       │    │
+│  │    - Normalize endpoints                    │    │
+│  └─────────────────────────────────────────────┘    │ 
 │                        ↓                            │
-│  ┌─────────────────────────────────────────────┐  │
-│  │ 2. Probe Capabilities                       │  │
-│  │    - Fetch /capabilities from each agent    │  │
-│  │    - Concurrent probing (configurable)      │  │
-│  │    - Handle failures with retries           │  │
-│  └─────────────────────────────────────────────┘  │
+│  ┌─────────────────────────────────────────────┐    │
+│  │ 2. Probe Capabilities                       │    │
+│  │    - Fetch /capabilities from each agent    │    │
+│  │    - Concurrent probing (configurable)      │    │ 
+│  │    - Handle failures with retries           │    │
+│  └─────────────────────────────────────────────┘    │ 
 │                        ↓                            │
-│  ┌─────────────────────────────────────────────┐  │
-│  │ 3. Match Capabilities → Workflow Steps      │  │
-│  │    - wallet_scan → wallet-agent             │  │
-│  │    - generate_report → report-agent         │  │
-│  └─────────────────────────────────────────────┘  │
+│  ┌─────────────────────────────────────────────┐    │
+│  │ 3. Match Capabilities → Workflow Steps      │    │
+│  │    - wallet_scan → wallet-agent             │    │
+│  │    - generate_report → report-agent         │    │
+│  └─────────────────────────────────────────────┘    │
 │                        ↓                            │
-│  ┌─────────────────────────────────────────────┐  │
-│  │ 4. Negotiate with Agents                    │  │
-│  │    - POST /negotiate to confirm             │  │
-│  │    - Fail fast if negotiation rejected      │  │
-│  └─────────────────────────────────────────────┘  │
+│  ┌─────────────────────────────────────────────┐    │
+│  │ 4. Negotiate with Agents                    │    │
+│  │    - POST /negotiate to confirm             │    │
+│  │    - Fail fast if negotiation rejected      │    │
+│  └─────────────────────────────────────────────┘    │
 │                        ↓                            │
-│  ┌─────────────────────────────────────────────┐  │
-│  │ 5. Execute Workflow                         │  │
-│  │    - Chain agents sequentially               │  │
-│  │    - wallet output → report input            │  │
-│  │    - Retry on failure                       │  │
-│  └─────────────────────────────────────────────┘  │
+│  ┌─────────────────────────────────────────────┐    │
+│  │ 5. Execute Workflow                         │    │
+│  │    - Chain agents sequentially              │    │
+│  │    - wallet output → report input           │    │
+│  │    - Retry on failure                       │    │
+│  └─────────────────────────────────────────────┘    │
 │                                                     │
 └─────────────────────────────────────────────────────┘
          ↓                              ↓
