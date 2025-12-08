@@ -1,5 +1,0 @@
-{
-  "id": "report-agent",
-  "name": "ReportGenerationAgent",
-  "capabilities": ["generate_report", "ipfs_upload"]
-}
